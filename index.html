@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Lektier</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    ::view-transition-old(*), ::view-transition-new(*) { animation-duration: 0.18s; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-dvh font-sans antialiased">
+
+<div id="error-banner" class="hidden bg-red-500 text-white text-sm font-medium px-4 py-2.5 text-center"></div>
+
+<header class="bg-white/90 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10">
+  <div class="max-w-xl mx-auto px-5 pt-4">
+    <h1 class="text-xl font-bold tracking-tight text-slate-900">Lektier</h1>
+    <div class="flex mt-1" id="tabs"></div>
+  </div>
+</header>
+
+<div class="max-w-xl mx-auto">
+  <div id="loading" class="flex justify-center items-center py-20">
+    <div class="w-7 h-7 rounded-full border-2 border-slate-200 border-t-blue-500 animate-spin"></div>
+  </div>
+  <div id="content" class="hidden"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+  const SUPABASE_URL      = '__SUPABASE_URL__';
+  const SUPABASE_ANON_KEY = '__SUPABASE_ANON_KEY__';
+
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  function today() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function fmtDate(iso) {
+    const d = new Date(iso + 'T00:00:00');
+    const days = ['Sø','Ma','Ti','On','To','Fr','Lø'];
+    const months = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+    return days[d.getDay()] + ' ' + d.getDate() + '. ' + months[d.getMonth()];
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('error-banner');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+  }
+
+  let byChild = {};
+
+  function renderItem(item, overdue, isLast) {
+    const isOverdue = overdue && !item.done;
+
+    const div = document.createElement('div');
+    div.dataset.id = item.id;
+    div.style.viewTransitionName = 'hw-item-' + item.id;
+
+    const borderClass = isLast ? '' : ' border-b border-slate-50';
+    div.className = 'flex items-start gap-3 px-4 py-3.5 cursor-pointer transition-colors duration-100 active:bg-slate-50' + borderClass;
+
+    let toggleClass = 'shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center mt-0.5 transition-all duration-150';
+    if (item.done) {
+      toggleClass += ' bg-emerald-500 border-emerald-500';
+    } else if (isOverdue) {
+      toggleClass += ' border-red-400 bg-white';
+    } else {
+      toggleClass += ' border-slate-200 bg-white';
+    }
+
+    const subjectClass = 'text-[15px] font-semibold leading-snug' +
+      (item.done ? ' line-through text-slate-300' : isOverdue ? ' text-red-500' : '');
+    const descClass = 'text-sm mt-0.5 leading-snug' +
+      (item.done ? ' line-through text-slate-300' : ' text-slate-500');
+    const dueClass = 'text-xs mt-1' +
+      (item.done ? ' text-slate-300' : isOverdue ? ' text-red-500 font-semibold' : ' text-slate-400');
+
+    const checkSvg = item.done
+      ? '<svg width="11" height="9" viewBox="0 0 11 9" fill="none"><path d="M1 4L4 7.5L10 1" stroke="white" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+      : '';
+
+    const dueLabel = isOverdue
+      ? 'Forfalt ' + fmtDate(item.due_date)
+      : 'Aflever ' + fmtDate(item.due_date);
+
+    div.innerHTML =
+      '<div class="' + toggleClass + '">' + checkSvg + '</div>' +
+      '<div class="flex-1 min-w-0">' +
+        '<div class="' + subjectClass + '">' + escHtml(item.subject) + '</div>' +
+        '<div class="' + descClass + '">'    + escHtml(item.description) + '</div>' +
+        '<div class="' + dueClass + '">'     + dueLabel + '</div>' +
+      '</div>';
+
+    div.addEventListener('click', () => toggleDone(item));
+    return div;
+  }
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;');
+  }
+
+  function renderChild(name, items) {
+    const t = today();
+    const maxDate = new Date(t);
+    maxDate.setDate(maxDate.getDate() + 7);
+    const maxIso = maxDate.toISOString().slice(0, 10);
+
+    const overdue  = items.filter(i => i.due_date < t  && !i.done);
+    const upcoming = items.filter(i => i.due_date >= t && i.due_date <= maxIso && !i.done);
+    const done     = items.filter(i => i.done);
+
+    const panel = document.createElement('div');
+    panel.className = 'hidden p-4 pb-10';
+    panel.id = 'panel-' + name;
+
+    if (overdue.length === 0 && upcoming.length === 0 && done.length === 0) {
+      panel.innerHTML =
+        '<div class="flex flex-col items-center justify-center py-16 text-slate-400">' +
+          '<svg class="w-10 h-10 mb-3 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">' +
+            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>' +
+          '</svg>' +
+          '<p class="text-sm">Ingen lektier de næste 7 dage</p>' +
+        '</div>';
+      return panel;
+    }
+
+    let firstSection = true;
+
+    function section(label, rows, isOverdue) {
+      if (rows.length === 0) return;
+      const lbl = document.createElement('div');
+      lbl.className = 'text-[10px] font-bold uppercase tracking-widest text-slate-400 px-1 pb-2' + (firstSection ? '' : ' mt-6');
+      lbl.textContent = label;
+      panel.appendChild(lbl);
+      firstSection = false;
+
+      const list = document.createElement('div');
+      list.className = 'bg-white rounded-2xl overflow-hidden shadow-sm ring-1 ring-black/[0.04]';
+      rows.forEach((item, idx) => list.appendChild(renderItem(item, isOverdue, idx === rows.length - 1)));
+      panel.appendChild(list);
+    }
+
+    section('Forfaldne', overdue, true);
+    section('Kommende · 7 dage', upcoming, false);
+    section('Færdige', done, false);
+
+    return panel;
+  }
+
+  function rerenderChild(name) {
+    const old = document.getElementById('panel-' + name);
+    if (!old) return;
+    const wasActive = !old.classList.contains('hidden');
+    const swap = () => {
+      const fresh = renderChild(name, byChild[name]);
+      if (wasActive) fresh.classList.remove('hidden');
+      old.replaceWith(fresh);
+    };
+    if (document.startViewTransition) document.startViewTransition(swap);
+    else swap();
+  }
+
+  async function toggleDone(item) {
+    const currentDone = !!item.done;
+    const newDone = !currentDone;
+
+    item.done = newDone;
+    rerenderChild(item.child_name);
+
+    const { error } = await sb
+      .from('homework')
+      .update({ done: newDone })
+      .eq('id', item.id);
+
+    if (error) {
+      item.done = currentDone;
+      rerenderChild(item.child_name);
+      showError('Kunne ikke gemme ændring: ' + error.message);
+    }
+  }
+
+  async function loadHomework() {
+    const { data, error } = await sb
+      .from('homework')
+      .select('id,child_name,due_date,subject,description,done')
+      .order('due_date');
+
+    document.getElementById('loading').style.display = 'none';
+
+    if (error) {
+      showError('Fejl ved indlæsning: ' + error.message);
+      return;
+    }
+
+    byChild = {};
+    for (const row of data) {
+      if (!byChild[row.child_name]) byChild[row.child_name] = [];
+      byChild[row.child_name].push(row);
+    }
+
+    const children = Object.keys(byChild).sort();
+
+    if (children.length === 0) {
+      const contentEl = document.getElementById('content');
+      contentEl.innerHTML =
+        '<div class="flex flex-col items-center justify-center py-20 text-slate-400">' +
+          '<svg class="w-10 h-10 mb-3 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">' +
+            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>' +
+          '</svg>' +
+          '<p class="text-sm">Ingen lektier fundet</p>' +
+        '</div>';
+      contentEl.classList.remove('hidden');
+      return;
+    }
+
+    const tabsEl   = document.getElementById('tabs');
+    const contentEl = document.getElementById('content');
+    contentEl.innerHTML = '';
+
+    children.forEach((name, idx) => {
+      const btn = document.createElement('button');
+      btn.dataset.child = name;
+      btn.className = 'flex-1 py-2.5 text-sm font-semibold border-b-2 transition-colors duration-150 ' +
+        (idx === 0
+          ? 'text-blue-600 border-blue-600'
+          : 'text-slate-400 border-transparent');
+      btn.textContent = name;
+      btn.addEventListener('click', () => switchTab(name, children));
+      tabsEl.appendChild(btn);
+
+      const panel = renderChild(name, byChild[name]);
+      if (idx === 0) panel.classList.remove('hidden');
+      contentEl.appendChild(panel);
+    });
+
+    contentEl.classList.remove('hidden');
+  }
+
+  function switchTab(name, children) {
+    children.forEach(n => {
+      document.getElementById('panel-' + n).classList.toggle('hidden', n !== name);
+    });
+    document.querySelectorAll('[data-child]').forEach(btn => {
+      const active = btn.dataset.child === name;
+      btn.className = 'flex-1 py-2.5 text-sm font-semibold border-b-2 transition-colors duration-150 ' +
+        (active ? 'text-blue-600 border-blue-600' : 'text-slate-400 border-transparent');
+    });
+  }
+
+  loadHomework();
+</script>
+</body>
+</html>
