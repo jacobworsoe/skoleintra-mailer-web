@@ -14,13 +14,13 @@
 <div id="error-banner" class="hidden bg-red-500 text-white text-sm font-medium px-4 py-2.5 text-center"></div>
 
 <header class="bg-white/90 backdrop-blur-md border-b border-slate-100 sticky top-0 z-10">
-  <div class="max-w-xl mx-auto px-5 pt-4">
+  <div class="max-w-[1200px] mx-auto px-5 pt-4">
     <h1 class="text-xl font-bold tracking-tight text-slate-900">Lektier</h1>
     <div class="flex mt-1" id="tabs"></div>
   </div>
 </header>
 
-<div class="max-w-xl mx-auto">
+<div class="max-w-[1200px] mx-auto">
   <div id="loading" class="flex justify-center items-center py-20">
     <div class="w-7 h-7 rounded-full border-2 border-slate-200 border-t-blue-500 animate-spin"></div>
   </div>
@@ -186,6 +186,19 @@
     }
   }
 
+  function slugifyChild(name) {
+    return name.toLowerCase().replace(/\s+/g, '-');
+  }
+  function childFromURL(children) {
+    const p = new URLSearchParams(location.search).get('child');
+    return p ? (children.find(c => slugifyChild(c) === p) || null) : null;
+  }
+  function setChildInURL(name) {
+    const u = new URL(location);
+    u.searchParams.set('child', slugifyChild(name));
+    history.replaceState({}, '', u);
+  }
+
   async function loadHomework() {
     const { data, error } = await sb
       .from('homework')
@@ -224,11 +237,14 @@
     const contentEl = document.getElementById('content');
     contentEl.innerHTML = '';
 
-    children.forEach((name, idx) => {
+    const initialName = childFromURL(children) || children[0];
+
+    children.forEach((name) => {
+      const isActive = name === initialName;
       const btn = document.createElement('button');
       btn.dataset.child = name;
       btn.className = 'flex-1 py-2.5 text-sm font-semibold border-b-2 transition-colors duration-150 ' +
-        (idx === 0
+        (isActive
           ? 'text-blue-600 border-blue-600'
           : 'text-slate-400 border-transparent');
       btn.textContent = name;
@@ -236,10 +252,11 @@
       tabsEl.appendChild(btn);
 
       const panel = renderChild(name, byChild[name]);
-      if (idx === 0) panel.classList.remove('hidden');
+      if (isActive) panel.classList.remove('hidden');
       contentEl.appendChild(panel);
     });
 
+    setChildInURL(initialName);
     contentEl.classList.remove('hidden');
   }
 
@@ -252,6 +269,7 @@
       btn.className = 'flex-1 py-2.5 text-sm font-semibold border-b-2 transition-colors duration-150 ' +
         (active ? 'text-blue-600 border-blue-600' : 'text-slate-400 border-transparent');
     });
+    setChildInURL(name);
   }
 
   loadHomework();
