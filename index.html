@@ -40,8 +40,8 @@
 
   function fmtDate(iso) {
     const d = new Date(iso + 'T00:00:00');
-    const days = ['Sø','Ma','Ti','On','To','Fr','Lø'];
-    const months = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+    const days = ['søndag','mandag','tirsdag','onsdag','torsdag','fredag','lørdag'];
+    const months = ['januar','februar','marts','april','maj','juni','juli','august','september','oktober','november','december'];
     return days[d.getDay()] + ' ' + d.getDate() + '. ' + months[d.getMonth()];
   }
 
@@ -52,6 +52,7 @@
   }
 
   let byChild = {};
+  let expandedByChild = {};
 
   function renderItem(item, overdue, isLast) {
     const isOverdue = overdue && !item.done;
@@ -74,7 +75,7 @@
 
     const subjectClass = 'text-[15px] font-semibold leading-snug' +
       (item.done ? ' line-through text-slate-300' : isOverdue ? ' text-red-500' : '');
-    const descClass = 'text-sm mt-0.5 leading-snug' +
+    const descClass = 'text-sm mt-0.5 leading-snug whitespace-pre-line' +
       (item.done ? ' line-through text-slate-300' : ' text-slate-500');
     const dueClass = 'text-xs mt-1' +
       (item.done ? ' text-slate-300' : isOverdue ? ' text-red-500 font-semibold' : ' text-slate-400');
@@ -112,15 +113,19 @@
     maxDate.setDate(maxDate.getDate() + 7);
     const maxIso = maxDate.toISOString().slice(0, 10);
 
-    const overdue  = items.filter(i => i.due_date < t  && !i.done);
-    const upcoming = items.filter(i => i.due_date >= t && i.due_date <= maxIso && !i.done);
-    const done     = items.filter(i => i.done);
+    const overdue     = items.filter(i => i.due_date < t  && !i.done);
+    const upcomingAll = items.filter(i => i.due_date >= t && !i.done);
+    const upcoming7   = upcomingAll.filter(i => i.due_date <= maxIso);
+    const expanded    = !!expandedByChild[name];
+    const upcoming    = expanded ? upcomingAll : upcoming7;
+    const hiddenCount = upcomingAll.length - upcoming7.length;
+    const done        = items.filter(i => i.done);
 
     const panel = document.createElement('div');
     panel.className = 'hidden p-4 pb-10';
     panel.id = 'panel-' + name;
 
-    if (overdue.length === 0 && upcoming.length === 0 && done.length === 0) {
+    if (overdue.length === 0 && upcomingAll.length === 0 && done.length === 0) {
       panel.innerHTML =
         '<div class="flex flex-col items-center justify-center py-16 text-slate-400">' +
           '<svg class="w-10 h-10 mb-3 text-slate-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">' +
@@ -133,8 +138,8 @@
 
     let firstSection = true;
 
-    function section(label, rows, isOverdue) {
-      if (rows.length === 0) return;
+    function section(label, rows, isOverdue, forceCard) {
+      if (rows.length === 0 && !forceCard) return null;
       const lbl = document.createElement('div');
       lbl.className = 'text-[10px] font-bold uppercase tracking-widest text-slate-400 px-1 pb-2' + (firstSection ? '' : ' mt-6');
       lbl.textContent = label;
@@ -145,10 +150,30 @@
       list.className = 'bg-white rounded-2xl overflow-hidden shadow-sm ring-1 ring-black/[0.04]';
       rows.forEach((item, idx) => list.appendChild(renderItem(item, isOverdue, idx === rows.length - 1)));
       panel.appendChild(list);
+      return list;
     }
 
     section('Forfaldne', overdue, true);
-    section('Kommende · 7 dage', upcoming, false);
+    const upcomingCard = section(
+      expanded ? 'Kommende · alle' : 'Kommende · 7 dage',
+      upcoming, false, hiddenCount > 0,
+    );
+    if (hiddenCount > 0 && upcomingCard) {
+      const footer = document.createElement('div');
+      const hasRows = upcoming.length > 0;
+      footer.className =
+        'flex items-center justify-center gap-1.5 px-4 py-3 text-sm font-medium ' +
+        'text-blue-600 cursor-pointer transition-colors duration-100 active:bg-slate-50' +
+        (hasRows ? ' border-t border-slate-50' : '');
+      footer.textContent = expanded
+        ? 'Vis kun de næste 7 dage'
+        : 'Vis alle ' + upcomingAll.length + ' kommende';
+      footer.addEventListener('click', () => {
+        expandedByChild[name] = !expanded;
+        rerenderChild(name);
+      });
+      upcomingCard.appendChild(footer);
+    }
     section('Færdige', done, false);
 
     return panel;
